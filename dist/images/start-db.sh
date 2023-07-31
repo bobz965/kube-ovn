@@ -224,11 +224,11 @@ if [[ "$ENABLE_SSL" == "false" ]]; then
     if [[ -z "$NODE_IPS" ]]; then
         /usr/share/ovn/scripts/ovn-ctl restart_northd
         ovn-nbctl --no-leader-only set-connection ptcp:"${NB_PORT}":["${DB_ADDR}"]
-        ovn-nbctl --no-leader-only set Connection . inactivity_probe=180000
+        ovn-nbctl --no-leader-only set Connection . inactivity_probe=360000
         ovn-nbctl --no-leader-only set NB_Global . options:use_logical_dp_groups=true
 
         ovn-sbctl --no-leader-only set-connection ptcp:"${SB_PORT}":["${DB_ADDR}"]
-        ovn-sbctl --no-leader-only set Connection . inactivity_probe=180000
+        ovn-sbctl --no-leader-only set Connection . inactivity_probe=360000
     else
         if [[ ! "$NODE_IPS" =~ "$DB_CLUSTER_ADDR" ]]; then
             echo "ERROR! host ip $DB_CLUSTER_ADDR not in env NODE_IPS $NODE_IPS"
@@ -272,7 +272,9 @@ if [[ "$ENABLE_SSL" == "false" ]]; then
                 /etc/ovn/ovnsb_local_config.db
             /usr/share/ovn/scripts/ovn-ctl $ovn_ctl_args \
                 --ovn-manage-ovsdb=no start_northd
-            ovn-nbctl --no-leader-only set NB_Global . options:northd_probe_interval=180000
+            ovn-nbctl --no-leader-only set NB_Global . options:inactivity_probe=360000
+            ovn-sbctl --no-leader-only set SB_Global . options:inactivity_probe=360000
+            ovn-nbctl --no-leader-only set NB_Global . options:northd_probe_interval=360000
             ovn-nbctl --no-leader-only set NB_Global . options:use_logical_dp_groups=true
         else
             # known leader always first
@@ -352,11 +354,11 @@ else
             --ovn-northd-ssl-ca-cert=/var/run/tls/cacert \
             restart_northd
         ovn-nbctl --no-leader-only -p /var/run/tls/key -c /var/run/tls/cert -C /var/run/tls/cacert set-connection pssl:"${NB_PORT}":["${DB_ADDR}"]
-        ovn-nbctl --no-leader-only -p /var/run/tls/key -c /var/run/tls/cert -C /var/run/tls/cacert set Connection . inactivity_probe=180000
+        ovn-nbctl --no-leader-only -p /var/run/tls/key -c /var/run/tls/cert -C /var/run/tls/cacert set Connection . inactivity_probe=360000
         ovn-nbctl --no-leader-only -p /var/run/tls/key -c /var/run/tls/cert -C /var/run/tls/cacert set NB_Global . options:use_logical_dp_groups=true
 
         ovn-sbctl --no-leader-only -p /var/run/tls/key -c /var/run/tls/cert -C /var/run/tls/cacert set-connection pssl:"${SB_PORT}":["${DB_ADDR}"]
-        ovn-sbctl --no-leader-only -p /var/run/tls/key -c /var/run/tls/cert -C /var/run/tls/cacert set Connection . inactivity_probe=180000
+        ovn-sbctl --no-leader-only -p /var/run/tls/key -c /var/run/tls/cert -C /var/run/tls/cacert set Connection . inactivity_probe=360000
     else
         if [[ ! "$NODE_IPS" =~ "$DB_CLUSTER_ADDR" ]]; then
             echo "ERROR! host ip $DB_CLUSTER_ADDR not in env NODE_IPS $NODE_IPS"
