@@ -64,7 +64,7 @@ var _ = Describe("[IPAM]", func() {
 				pod1 := "pod1.ns"
 				pod1Nic1 := "pod1nic1.ns"
 				freeIP1 := im.Subnets[subnetName].V4Free.At(0).Start().String()
-				ip, _, _, err := im.GetStaticAddress(pod1, pod1Nic1, freeIP1, nil, subnetName, true)
+				_, ip, _, _, err := im.GetStaticAddress(pod1, pod1Nic1, freeIP1, nil, subnetName, true)
 				Expect(err).ShouldNot(HaveOccurred())
 				Expect(ip).To(Equal(freeIP1))
 
@@ -107,7 +107,7 @@ var _ = Describe("[IPAM]", func() {
 				By("get static ip conflict with ip in use ")
 				pod3 := "pod3.ns"
 				pod3Nic1 := "pod3Nic1.ns"
-				_, _, _, err = im.GetStaticAddress(pod3, pod3Nic1, freeIP3, nil, subnetName, true)
+				_, _, _, _, err = im.GetStaticAddress(pod3, pod3Nic1, freeIP3, nil, subnetName, true)
 				Expect(err).Should(MatchError(ipam.ErrConflict))
 
 				By("release pod with multiple nics")
@@ -129,7 +129,7 @@ var _ = Describe("[IPAM]", func() {
 				pod4 := "pod4.ns"
 				pod4Nic1 := "pod4Nic1.ns"
 
-				_, _, _, err = im.GetStaticAddress(pod4, pod4Nic1, freeIP1, nil, subnetName, true)
+				_, _, _, _, err = im.GetStaticAddress(pod4, pod4Nic1, freeIP1, nil, subnetName, true)
 				Expect(err).ShouldNot(HaveOccurred())
 
 				By("create pod with no initialized subnet")
@@ -219,7 +219,7 @@ var _ = Describe("[IPAM]", func() {
 				pod1 := "pod1.ns"
 				pod1Nic1 := "pod1nic1.ns"
 				freeIP1 := im.Subnets[subnetName].V6Free.At(0).Start().String()
-				_, ip, _, err := im.GetStaticAddress(pod1, pod1Nic1, freeIP1, nil, subnetName, true)
+				_, _, ip, _, err := im.GetStaticAddress(pod1, pod1Nic1, freeIP1, nil, subnetName, true)
 
 				Expect(err).ShouldNot(HaveOccurred())
 				Expect(ip).To(Equal(freeIP1))
@@ -262,7 +262,7 @@ var _ = Describe("[IPAM]", func() {
 				By("get static ip conflict with ip in use ")
 				pod3 := "pod3.ns"
 				pod3Nic1 := "pod3Nic1.ns"
-				_, _, _, err = im.GetStaticAddress(pod3, pod3Nic1, freeIP3, nil, subnetName, true)
+				_, _, _, _, err = im.GetStaticAddress(pod3, pod3Nic1, freeIP3, nil, subnetName, true)
 				Expect(err).Should(MatchError(ipam.ErrConflict))
 
 				By("release pod with multiple nics")
@@ -284,7 +284,7 @@ var _ = Describe("[IPAM]", func() {
 				pod4 := "pod4.ns"
 				pod4Nic1 := "pod4Nic1.ns"
 
-				_, _, _, err = im.GetStaticAddress(pod4, pod4Nic1, freeIP1, nil, subnetName, true)
+				_, _, _, _, err = im.GetStaticAddress(pod4, pod4Nic1, freeIP1, nil, subnetName, true)
 				Expect(err).ShouldNot(HaveOccurred())
 
 				By("create pod with no initialized subnet")
@@ -376,7 +376,7 @@ var _ = Describe("[IPAM]", func() {
 				freeIP41 := im.Subnets[subnetName].V4Free.At(0).Start().String()
 				freeIP61 := im.Subnets[subnetName].V6Free.At(0).Start().String()
 				dualIP := fmt.Sprintf("%s,%s", freeIP41, freeIP61)
-				ip4, ip6, _, err := im.GetStaticAddress(pod1, pod1Nic1, dualIP, nil, subnetName, true)
+				_, ip4, ip6, _, err := im.GetStaticAddress(pod1, pod1Nic1, dualIP, nil, subnetName, true)
 				Expect(err).ShouldNot(HaveOccurred())
 				Expect(ip4).To(Equal(freeIP41))
 				Expect(ip6).To(Equal(freeIP61))
@@ -433,10 +433,10 @@ var _ = Describe("[IPAM]", func() {
 				By("get static ip conflict with ip in use ")
 				pod3 := "pod3.ns"
 				pod3Nic1 := "pod3Nic1.ns"
-				_, _, _, err = im.GetStaticAddress(pod3, pod3Nic1, freeIP43, nil, subnetName, true)
+				_, _, _, _, err = im.GetStaticAddress(pod3, pod3Nic1, freeIP43, nil, subnetName, true)
 				Expect(err).Should(MatchError(ipam.ErrConflict))
 
-				_, _, _, err = im.GetStaticAddress(pod3, pod3Nic1, freeIP63, nil, subnetName, true)
+				_, _, _, _, err = im.GetStaticAddress(pod3, pod3Nic1, freeIP63, nil, subnetName, true)
 				Expect(err).Should(MatchError(ipam.ErrConflict))
 
 				By("release pod with multiple nics")
@@ -467,10 +467,10 @@ var _ = Describe("[IPAM]", func() {
 				pod4 := "pod4.ns"
 				pod4Nic1 := "pod4Nic1.ns"
 
-				_, _, _, err = im.GetStaticAddress(pod4, pod4Nic1, freeIP41, nil, subnetName, true)
+				_, _, _, _, err = im.GetStaticAddress(pod4, pod4Nic1, freeIP41, nil, subnetName, true)
 				Expect(err).ShouldNot(HaveOccurred())
 
-				_, _, _, err = im.GetStaticAddress(pod4, pod4Nic1, freeIP61, nil, subnetName, true)
+				_, _, _, _, err = im.GetStaticAddress(pod4, pod4Nic1, freeIP61, nil, subnetName, true)
 				Expect(err).ShouldNot(HaveOccurred())
 
 				By("create pod with no initialized subnet")

@@ -25,6 +25,24 @@ func (c *OVNNbClient) CreateLogicalSwitchPort(lsName, lspName, ip, mac, podName,
 
 	// ignore
 	if exist {
+		lsp, err := c.GetLogicalSwitchPort(lspName, false)
+		if err != nil {
+			err := fmt.Errorf("get logical switch port %s: %v", lspName, err)
+			klog.Error(err)
+			return err
+		}
+		if lsp.Options != nil {
+			klog.Infof("update logical switch port %s with nil options %v", lsp.Name, lsp.Options)
+			lsp.Options = make(map[string]string)
+			op, err := c.UpdateLogicalSwitchPortOp(lsp, &lsp.Options)
+			if err != nil {
+				klog.Error(err)
+				return fmt.Errorf("failed to update logical switch port op %s: %v", lspName, err)
+			}
+			if err = c.Transact("lsp-update", op); err != nil {
+				return fmt.Errorf("failed to update logical switch port %s: %v", lspName, err)
+			}
+		}
 		return nil
 	}
 
@@ -404,6 +422,102 @@ func (c *OVNNbClient) SetLogicalSwitchPortExternalIds(lspName string, externalId
 		return fmt.Errorf("set logical switch port %s external ids %v: %v", lspName, externalIds, err)
 	}
 
+	return nil
+}
+
+// SetLogicalSwitchPortMigrateOptions set logical switch port options of migration
+func (c *OVNNbClient) SetLogicalSwitchPortMigrateOptions(lspName, srcChassisName, dstChassisName string) error {
+	// ovn-nbctl lsp-set-options migrator requested-chassis=src,dst activation-strategy=rarp
+
+	if srcChassisName == dstChassisName {
+		err := fmt.Errorf("srcChassisName and dstChassisName can't be the same on port %s", lspName)
+		klog.Error(err)
+		return err
+	}
+	if srcChassisName == "" || dstChassisName == "" {
+		err := fmt.Errorf("srcChassisName and dstChassisName can't be empty on port %s", lspName)
+		klog.Error(err)
+		return err
+	}
+
+	lsp, err := c.GetLogicalSwitchPort(lspName, false)
+	if err != nil {
+		klog.Error(err)
+		return fmt.Errorf("get logical switch port %s: %v", lspName, err)
+	}
+	if lsp.Options == nil {
+		lsp.Options = make(map[string]string)
+	}
+
+	requestedChassis, ok := lsp.Options["requested-chassis"]
+	if ok {
+		splits := strings.Split(requestedChassis, ",")
+		if len(splits) == 2 {
+			if splits[0] == srcChassisName && splits[1] == dstChassisName {
+				return nil
+			}
+		}
+	}
+
+	requestedChassis = fmt.Sprintf("%s,%s", srcChassisName, dstChassisName)
+	lsp.Options["requested-chassis"] = requestedChassis
+	lsp.Options["activation-strategy"] = "rarp"
+
+	klog.Infof("set logical switch port %s options requested-chassis=%s", lspName, requestedChassis)
+	if err := c.UpdateLogicalSwitchPort(lsp, &lsp.Options); err != nil {
+		return fmt.Errorf("set logical switch port %s options requested chassis %s: %v", lspName, requestedChassis, err)
+	}
+
+	return nil
+}
+
+// GetLogicalSwitchPortMigrateOptions set logical switch port options of migration
+func (c *OVNNbClient) GetLogicalSwitchPortMigrateOptions(lspName string) (string, string, error) {
+	// return srcChassisName, dstChassisName
+	lsp, err := c.GetLogicalSwitchPort(lspName, true)
+	if err != nil {
+		klog.Error(err)
+		return "", "", fmt.Errorf("get logical switch port %s: %v", lspName, err)
+	}
+
+	if lsp == nil {
+		return "", "", nil
+	}
+
+	if lsp.Options == nil {
+		lsp.Options = make(map[string]string)
+	}
+
+	requestedChassis, ok := lsp.Options["requested-chassis"]
+	if ok {
+		splits := strings.Split(requestedChassis, ",")
+		if len(splits) == 2 {
+			return splits[0], splits[1], nil
+		}
+	}
+	return "", "", nil
+}
+
+// CleanLogicalSwitchPortMigrateOptions clean logical switch port options of migration
+func (c *OVNNbClient) CleanLogicalSwitchPortMigrateOptions(lspName string) error {
+	lsp, err := c.GetLogicalSwitchPort(lspName, true)
+	if err != nil {
+		klog.Error(err)
+		return fmt.Errorf("get logical switch port %s: %v", lspName, err)
+	}
+
+	if lsp == nil {
+		return nil
+	}
+	if lsp.Options == nil {
+		return nil
+	}
+
+	lsp.Options = make(map[string]string)
+	klog.Infof("clean logical switch port %s options", lspName)
+	if err := c.UpdateLogicalSwitchPort(lsp, &lsp.Options); err != nil {
+		return fmt.Errorf("failed to clean logical switch port %s options: %v", lspName, err)
+	}
 	return nil
 }
 

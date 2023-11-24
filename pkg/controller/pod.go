@@ -641,15 +641,24 @@ func (c *Controller) reconcileAllocateSubnets(cachedPod, pod *v1.Pod, needAlloca
 	namespace := pod.Namespace
 	name := pod.Name
 	isVMPod, vmName := isVMPod(pod)
+	var vmInMigrate bool
+	var srcChassisName, dstChassisName string
+	var err error
+	if isVMPod && c.config.EnableKeepVMIP {
+		// only dst pod in not running status could set migration options
+		if vmInMigrate, srcChassisName, dstChassisName, err = c.vmIsMigrating(pod, vmName); err != nil {
+			klog.Error(err)
+			return nil, err
+		}
+	}
 
 	klog.Infof("sync pod %s/%s allocated", namespace, name)
-
 	vipsMap := c.getVirtualIPs(pod, needAllocatePodNets)
 
 	// Avoid create lsp for already running pod in ovn-nb when controller restart
 	for _, podNet := range needAllocatePodNets {
 		// the subnet may changed when alloc static ip from the latter subnet after ns supports multi subnets
-		v4IP, v6IP, mac, subnet, err := c.acquireAddress(pod, podNet)
+		conflict, v4IP, v6IP, mac, subnet, err := c.acquireAddress(pod, podNet)
 		if err != nil {
 			c.recorder.Eventf(pod, v1.EventTypeWarning, "AcquireAddressFailed", err.Error())
 			klog.Error(err)
@@ -675,10 +684,28 @@ func (c *Controller) reconcileAllocateSubnets(cachedPod, pod *v1.Pod, needAlloca
 		}
 		pod.Annotations[fmt.Sprintf(util.AllocatedAnnotationTemplate, podNet.ProviderName)] = "true"
 		if isVMPod && c.config.EnableKeepVMIP {
+			vmKey := fmt.Sprintf("%s/%s", namespace, vmName)
 			pod.Annotations[fmt.Sprintf(util.VMTemplate, podNet.ProviderName)] = vmName
 			if err := c.changeVMSubnet(vmName, namespace, podNet.ProviderName, subnet.Name, pod); err != nil {
-				klog.Errorf("change subnet of pod %s/%s to %s failed: %v", namespace, name, subnet.Name, err)
+				klog.Errorf("vm %s change subnet to %s failed: %v", vmKey, subnet.Name, err)
 				return nil, err
+			}
+			if vmInMigrate {
+				// test logic
+				// TODO: remove later
+				klog.Infof("vm %s is migrating from %s to %s", vmKey, srcChassisName, dstChassisName)
+				if srcChassisName != "" && dstChassisName != "" {
+					if err = c.setVMLSPMigration(pod, srcChassisName, dstChassisName, podNet); err != nil {
+						klog.Errorf("failed to set migrations for port of vm %s: %v", vmKey, err)
+						return nil, err
+					}
+				}
+				pod.Annotations[util.VMMigratedAnnotation] = "true"
+			}
+
+			// if vm is migrating, set lsp migration options for vm from src chassis to dst chassis
+			if conflict && vmInMigrate && pod.Spec.NodeName == dstChassisName {
+				klog.Infof("xxxxxxxxxxxxx vm %s is migrating from %s to %s", vmKey, srcChassisName, dstChassisName)
 			}
 		}
 
@@ -733,10 +760,12 @@ func (c *Controller) reconcileAllocateSubnets(cachedPod, pod *v1.Pod, needAlloca
 				DHCPv6OptionsUUID: subnet.Status.DHCPv6OptionsUUID,
 			}
 
-			if err := c.OVNNbClient.CreateLogicalSwitchPort(subnet.Name, portName, ipStr, mac, podName, pod.Namespace, portSecurity, securityGroupAnnotation, vips, podNet.Subnet.Spec.EnableDHCP, dhcpOptions, subnet.Spec.Vpc); err != nil {
-				c.recorder.Eventf(pod, v1.EventTypeWarning, "CreateOVNPortFailed", err.Error())
-				klog.Errorf("%v", err)
-				return nil, err
+			if !vmInMigrate {
+				if err := c.OVNNbClient.CreateLogicalSwitchPort(subnet.Name, portName, ipStr, mac, podName, pod.Namespace, portSecurity, securityGroupAnnotation, vips, podNet.Subnet.Spec.EnableDHCP, dhcpOptions, subnet.Spec.Vpc); err != nil {
+					c.recorder.Eventf(pod, v1.EventTypeWarning, "CreateOVNPortFailed", err.Error())
+					klog.Errorf("%v", err)
+					return nil, err
+				}
 			}
 
 			if pod.Annotations[fmt.Sprintf(util.Layer2ForwardAnnotationTemplate, podNet.ProviderName)] == "true" {
@@ -1602,7 +1631,10 @@ func (c *Controller) validatePodIP(podName, subnetName, ipv4, ipv6 string) (bool
 	return true, true, nil
 }
 
-func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, string, string, *kubeovnv1.Subnet, error) {
+func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (bool, string, string, string, *kubeovnv1.Subnet, error) {
+	// return conflict bool
+	// conflict could be treate as vm migrating
+
 	podName := c.getNameByPod(pod)
 	key := fmt.Sprintf("%s/%s", pod.Namespace, podName)
 
@@ -1614,16 +1646,16 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 		vip, err := c.virtualIpsLister.Get(vipName)
 		if err != nil {
 			klog.Errorf("failed to get static vip '%s', %v", vipName, err)
-			return "", "", "", podNet.Subnet, err
+			return false, "", "", "", podNet.Subnet, err
 		}
 		portName := ovs.PodNameToPortName(podName, pod.Namespace, podNet.ProviderName)
 		if c.config.EnableKeepVMIP {
 			checkVMPod, _ = isVMPod(pod)
 		}
 		if err = c.podReuseVip(vipName, portName, isStsPod || checkVMPod); err != nil {
-			return "", "", "", podNet.Subnet, err
+			return false, "", "", "", podNet.Subnet, err
 		}
-		return vip.Status.V4ip, vip.Status.V6ip, vip.Status.Mac, podNet.Subnet, nil
+		return false, vip.Status.V4ip, vip.Status.V6ip, vip.Status.Mac, podNet.Subnet, nil
 	}
 
 	var macStr *string
@@ -1631,7 +1663,7 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 		mac := pod.Annotations[fmt.Sprintf(util.MacAddressAnnotationTemplate, podNet.ProviderName)]
 		if mac != "" {
 			if _, err := net.ParseMAC(mac); err != nil {
-				return "", "", "", podNet.Subnet, err
+				return false, "", "", "", podNet.Subnet, err
 			}
 			macStr = &mac
 		}
@@ -1645,7 +1677,7 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 		ns, err := c.namespacesLister.Get(pod.Namespace)
 		if err != nil {
 			klog.Errorf("failed to get namespace %s: %v", pod.Namespace, err)
-			return "", "", "", podNet.Subnet, err
+			return false, "", "", "", podNet.Subnet, err
 		}
 		if len(ns.Annotations) != 0 {
 			ippoolStr = ns.Annotations[util.IPPoolAnnotation]
@@ -1662,15 +1694,15 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 			ipv4, ipv6, mac, err := c.ipam.GetRandomAddress(key, portName, macStr, podNet.Subnet.Name, "", skippedAddrs, !podNet.AllowLiveMigration)
 			if err != nil {
 				klog.Error(err)
-				return "", "", "", podNet.Subnet, err
+				return false, "", "", "", podNet.Subnet, err
 			}
 			ipv4OK, ipv6OK, err := c.validatePodIP(pod.Name, podNet.Subnet.Name, ipv4, ipv6)
 			if err != nil {
 				klog.Error(err)
-				return "", "", "", podNet.Subnet, err
+				return false, "", "", "", podNet.Subnet, err
 			}
 			if ipv4OK && ipv6OK {
-				return ipv4, ipv6, mac, podNet.Subnet, nil
+				return false, ipv4, ipv6, mac, podNet.Subnet, nil
 			}
 
 			if !ipv4OK {
@@ -1688,18 +1720,19 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 	nsNets, _ := c.getNsAvailableSubnets(pod, podNet)
 	var v4IP, v6IP, mac string
 	var err error
+	var conflict bool
 
 	// Static allocate
 	if pod.Annotations[fmt.Sprintf(util.IPAddressAnnotationTemplate, podNet.ProviderName)] != "" {
 		ipStr := pod.Annotations[fmt.Sprintf(util.IPAddressAnnotationTemplate, podNet.ProviderName)]
 
 		for _, net := range nsNets {
-			v4IP, v6IP, mac, err = c.acquireStaticAddress(key, portName, ipStr, macStr, net.Subnet.Name, net.AllowLiveMigration)
+			conflict, v4IP, v6IP, mac, err = c.acquireStaticAddress(key, portName, ipStr, macStr, net.Subnet.Name, net.AllowLiveMigration)
 			if err == nil {
-				return v4IP, v6IP, mac, net.Subnet, nil
+				return conflict, v4IP, v6IP, mac, net.Subnet, nil
 			}
 		}
-		return v4IP, v6IP, mac, podNet.Subnet, err
+		return conflict, v4IP, v6IP, mac, podNet.Subnet, err
 	}
 
 	// IPPool allocate
@@ -1723,14 +1756,14 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 				portName := ovs.PodNameToPortName(podName, pod.Namespace, podNet.ProviderName)
 				ipv4, ipv6, mac, err := c.ipam.GetRandomAddress(key, portName, macStr, podNet.Subnet.Name, ipPool[0], skippedAddrs, !podNet.AllowLiveMigration)
 				if err != nil {
-					return "", "", "", podNet.Subnet, err
+					return false, "", "", "", podNet.Subnet, err
 				}
 				ipv4OK, ipv6OK, err := c.validatePodIP(pod.Name, podNet.Subnet.Name, ipv4, ipv6)
 				if err != nil {
-					return "", "", "", podNet.Subnet, err
+					return false, "", "", "", podNet.Subnet, err
 				}
 				if ipv4OK && ipv6OK {
-					return ipv4, ipv6, mac, podNet.Subnet, nil
+					return false, ipv4, ipv6, mac, podNet.Subnet, nil
 				}
 
 				if !ipv4OK {
@@ -1758,9 +1791,9 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 						continue
 					}
 
-					v4IP, v6IP, mac, err = c.acquireStaticAddress(key, portName, staticIP, macStr, net.Subnet.Name, net.AllowLiveMigration)
+					conflict, v4IP, v6IP, mac, err = c.acquireStaticAddress(key, portName, staticIP, macStr, net.Subnet.Name, net.AllowLiveMigration)
 					if err == nil {
-						return v4IP, v6IP, mac, net.Subnet, nil
+						return conflict, v4IP, v6IP, mac, net.Subnet, nil
 					}
 				}
 			}
@@ -1772,9 +1805,9 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 
 			if index < len(ipPool) {
 				for _, net := range nsNets {
-					v4IP, v6IP, mac, err = c.acquireStaticAddress(key, portName, ipPool[index], macStr, net.Subnet.Name, net.AllowLiveMigration)
+					conflict, v4IP, v6IP, mac, err = c.acquireStaticAddress(key, portName, ipPool[index], macStr, net.Subnet.Name, net.AllowLiveMigration)
 					if err == nil {
-						return v4IP, v6IP, mac, net.Subnet, nil
+						return conflict, v4IP, v6IP, mac, net.Subnet, nil
 					}
 				}
 				klog.Errorf("acquire address %s for %s failed, %v", ipPool[index], key, err)
@@ -1782,23 +1815,27 @@ func (c *Controller) acquireAddress(pod *v1.Pod, podNet *kubeovnNet) (string, st
 		}
 	}
 	klog.Errorf("alloc address for %s failed, return NoAvailableAddress", key)
-	return "", "", "", podNet.Subnet, ipam.ErrNoAvailable
+	return conflict, "", "", "", podNet.Subnet, ipam.ErrNoAvailable
 }
 
-func (c *Controller) acquireStaticAddress(key, nicName, ip string, mac *string, subnet string, liveMigration bool) (string, string, string, error) {
+func (c *Controller) acquireStaticAddress(key, nicName, ip string, mac *string, subnet string, liveMigration bool) (bool, string, string, string, error) {
+	// return conflict bool
+	// conflict could be treate as vm migrating
+
 	var v4IP, v6IP, macStr string
 	var err error
+	var conflict bool
 	for _, ipStr := range strings.Split(ip, ",") {
 		if net.ParseIP(ipStr) == nil {
-			return "", "", "", fmt.Errorf("failed to parse IP %s", ipStr)
+			return false, "", "", "", fmt.Errorf("failed to parse IP %s", ipStr)
 		}
 	}
 
-	if v4IP, v6IP, macStr, err = c.ipam.GetStaticAddress(key, nicName, ip, mac, subnet, !liveMigration); err != nil {
+	if conflict, v4IP, v6IP, macStr, err = c.ipam.GetStaticAddress(key, nicName, ip, mac, subnet, !liveMigration); err != nil {
 		klog.Errorf("failed to get static ip %v, mac %v, subnet %v, err %v", ip, mac, subnet, err)
-		return "", "", "", err
+		return conflict, "", "", "", err
 	}
-	return v4IP, v6IP, macStr, nil
+	return conflict, v4IP, v6IP, macStr, nil
 }
 
 func appendCheckPodToDel(c *Controller, pod *v1.Pod, ownerRefName, ownerRefKind string) (bool, error) {
@@ -1878,6 +1915,113 @@ func isVMPod(pod *v1.Pod) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+func (c *Controller) vmIsMigrating(pod *v1.Pod, vmiName string) (bool, string, string, error) {
+	// return migrating, migrated bool, src node, dst node, error
+	// 热迁移的时候肯定存在两个虚拟机，一个是源虚拟机，一个是目标虚拟机
+	if migrated, ok := pod.Annotations[util.VMMigratedAnnotation]; ok && migrated == "true" {
+		return true, "", "", nil
+	}
+	vmKey := fmt.Sprintf("%s/%s", pod.Namespace, vmiName)
+	klog.Infof("check vm %s migration state", vmKey)
+	listOpts := metav1.ListOptions{
+		LabelSelector: labels.Set{util.KubevirtVMILabel: vmiName}.AsSelector().String(),
+	}
+	vmimList, err := c.config.KubevirtClient.VirtualMachineInstanceMigration(pod.Namespace).List(&listOpts)
+	if err != nil {
+		err = fmt.Errorf("failed to list vmi Migration of vmi %s, %v", vmiName, err)
+		klog.Error(err)
+		return false, "", "", err
+	}
+	if len(vmimList.Items) == 0 {
+		klog.Infof("not migrate vmi %s", vmiName)
+		return false, "", "", nil
+	}
+	var pendingVMIMExist bool
+	for _, vmim := range vmimList.Items {
+		if vmim.Status.Phase != "Failed" && vmim.Status.Phase != "Running" {
+			pendingVMIMExist = true
+			klog.Infof("VirtualMachineInstanceMigration %s is migrating vmi %s", vmim.Name, vmKey)
+			break
+		}
+	}
+	if !pendingVMIMExist {
+		klog.Infof("not migrate vmi %s", vmiName)
+		return false, "", "", nil
+	}
+
+	selector := labels.Set{util.KubevirtVMLabel: vmiName}.AsSelector()
+	podList, err := c.podsLister.Pods(pod.Namespace).List(selector)
+	if err != nil {
+		err = fmt.Errorf("failed to list pods, %v", err)
+		klog.Error(err)
+		return false, "", "", err
+	}
+	notCompletedPods := make([]*v1.Pod, 0)
+	for _, p := range podList {
+		klog.Infof("check xxxxxxxxx pod %s, pod phase %v", p.Name, &p.Status.Phase)
+		for _, owner := range p.OwnerReferences {
+			// The name of vmi is consistent with vm's name.
+			if owner.Kind == "VirtualMachineInstance" && owner.Name == vmiName {
+				if p.Status.Phase != v1.PodSucceeded && p.Status.Phase != v1.PodFailed {
+					klog.Infof("add xxxxxxxxx pod %s, pod phase %v", p.Name, &p.Status.Phase)
+					notCompletedPods = append(notCompletedPods, p)
+					continue
+				}
+			}
+		}
+	}
+
+	if len(notCompletedPods) != 2 {
+		err = fmt.Errorf("unknown migrate situation, available pod number is %d", len(notCompletedPods))
+		klog.Error(err)
+		return false, "", "", err
+	}
+	var srcPod, dstPod *v1.Pod
+
+	pod0 := notCompletedPods[0]
+	pod1 := notCompletedPods[1]
+	if pod0.CreationTimestamp.After(pod1.CreationTimestamp.Time) {
+		srcPod = pod1
+		dstPod = pod0
+	} else {
+		srcPod = pod0
+		dstPod = pod1
+	}
+	if srcPod.Spec.NodeName == "" {
+		err = fmt.Errorf("failed to get src pod node name")
+		klog.Error(err)
+		return true, "", "", err
+	}
+	if dstPod.Spec.NodeName == "" {
+		err = fmt.Errorf("failed to get dst pod node name")
+		klog.Error(err)
+		return true, "", "", err
+	}
+
+	klog.Infof("src vmi %s is migrating from %s to %s", vmiName, srcPod.Spec.NodeName, dstPod.Spec.NodeName)
+	return true, srcPod.Spec.NodeName, dstPod.Spec.NodeName, nil
+}
+
+func (c *Controller) setVMLSPMigration(pod *v1.Pod, srcChassisName, dstChassisName string, podNet *kubeovnNet) error {
+	// use check ovn-nbctl lsp-set-options migrator requested-chassis=src,node activation-strategy=rarp
+	// to facilitate the migration of the VM
+	// the options will be removed when the migration is completed, kubelet cni del old vm pod
+	podName := c.getNameByPod(pod)
+	portName := ovs.PodNameToPortName(podName, pod.Namespace, podNet.ProviderName)
+	if podNet.Type == providerTypeIPAM {
+		klog.Infof("no need set migrate options for the non-ovn port %s", portName)
+		return nil
+	}
+
+	if err := c.OVNNbClient.SetLogicalSwitchPortMigrateOptions(portName, srcChassisName, dstChassisName); err != nil {
+		err = fmt.Errorf("failed to set migrate options for port %s, %v", portName, err)
+		klog.Error(err)
+		return err
+	}
+
+	return nil
 }
 
 func isOwnsByTheVM(vmi metav1.Object) (bool, string) {

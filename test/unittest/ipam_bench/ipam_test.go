@@ -217,7 +217,7 @@ func addRandomAddrCapacity(b *testing.B, im *ipam.IPAM, protocol string, isTimeT
 			startTime = currentTime
 		}
 
-		if _, _, _, err := im.GetStaticAddress(podName, nicName, ip, nil, subnetName, true); err != nil {
+		if _, _, _, _, err := im.GetStaticAddress(podName, nicName, ip, nil, subnetName, true); err != nil {
 			b.Errorf("ERROR: allocate %s address failed with index %d with err %v ", protocol, n, err)
 			return
 		}
@@ -324,7 +324,7 @@ func benchmarkAllocFreeAddrParallel(b *testing.B, podNumber int, protocol string
 						return
 					}
 
-					if _, _, _, err := im.GetStaticAddress(podName, nicName, ip, nil, subnetName, false); err != nil {
+					if _, _, _, _, err := im.GetStaticAddress(podName, nicName, ip, nil, subnetName, false); err != nil {
 						b.Errorf("ERROR: allocate %s address failed with index %d with err %v ", protocol, n, err)
 						return
 					}

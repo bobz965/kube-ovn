@@ -143,19 +143,24 @@ func (s *Subnet) GetRandomMac(podName, nicName string) string {
 	}
 }
 
-func (s *Subnet) GetStaticMac(podName, nicName, mac string, checkConflict bool) error {
+func (s *Subnet) GetStaticMac(podName, nicName, mac string, checkConflict bool) (bool, error) {
+	// return conflict bool
+	// conflict could be treate as vm migrating
 	if mac == "" {
-		return nil
+		return false, nil
 	}
-	if checkConflict {
-		if p, ok := s.MacToPod[mac]; ok && p != podName {
-			klog.Errorf("mac %s has been allocated to pod %s", mac, p)
-			return ErrConflict
+	conflict := false
+	if p, ok := s.MacToPod[mac]; ok && p != podName {
+		klog.Errorf("mac %s has been allocated to pod %s", mac, p)
+		conflict = true
+		if checkConflict {
+			return conflict, ErrConflict
 		}
 	}
+
 	s.MacToPod[mac] = podName
 	s.NicToMac[nicName] = mac
-	return nil
+	return conflict, nil
 }
 
 func (s *Subnet) pushPodNic(podName, nicName string) {
@@ -254,7 +259,7 @@ func (s *Subnet) getV4RandomAddress(ippoolName, podName, nicName string, mac *st
 	if mac == nil {
 		return ip, nil, s.GetRandomMac(podName, nicName), nil
 	}
-	if err := s.GetStaticMac(podName, nicName, *mac, checkConflict); err != nil {
+	if _, err := s.GetStaticMac(podName, nicName, *mac, checkConflict); err != nil {
 		return nil, nil, "", err
 	}
 	return ip, nil, *mac, nil
@@ -308,15 +313,18 @@ func (s *Subnet) getV6RandomAddress(ippoolName, podName, nicName string, mac *st
 	if mac == nil {
 		return nil, ip, s.GetRandomMac(podName, nicName), nil
 	}
-	if err := s.GetStaticMac(podName, nicName, *mac, checkConflict); err != nil {
+	if _, err := s.GetStaticMac(podName, nicName, *mac, checkConflict); err != nil {
 		return nil, nil, "", err
 	}
 	return nil, ip, *mac, nil
 }
 
-func (s *Subnet) GetStaticAddress(podName, nicName string, ip IP, mac *string, force, checkConflict bool) (IP, string, error) {
+func (s *Subnet) GetStaticAddress(podName, nicName string, ip IP, mac *string, force, checkConflict bool) (bool, IP, string, error) {
+	// return conflict bool
+	// conflict could be treate as vm migrating
 	var v4, v6 bool
 	isAllocated := false
+	conflict := false
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -326,10 +334,10 @@ func (s *Subnet) GetStaticAddress(podName, nicName string, ip IP, mac *string, f
 		v6 = s.V6CIDR != nil
 	}
 	if v4 && !s.V4CIDR.Contains(net.IP(ip)) {
-		return ip, "", ErrOutOfRange
+		return false, ip, "", ErrOutOfRange
 	}
 	if v6 && !s.V6CIDR.Contains(net.IP(ip)) {
-		return ip, "", ErrOutOfRange
+		return false, ip, "", ErrOutOfRange
 	}
 
 	var pool *IPPool
@@ -370,8 +378,8 @@ func (s *Subnet) GetStaticAddress(podName, nicName string, ip IP, mac *string, f
 			macStr = s.GetRandomMac(podName, nicName)
 		}
 	} else {
-		if err := s.GetStaticMac(podName, nicName, *mac, checkConflict); err != nil {
-			return ip, macStr, err
+		if conflict, err := s.GetStaticMac(podName, nicName, *mac, checkConflict); err != nil {
+			return conflict, ip, macStr, err
 		}
 		macStr = *mac
 	}
@@ -383,20 +391,20 @@ func (s *Subnet) GetStaticAddress(podName, nicName string, ip IP, mac *string, f
 				if !checkConflict {
 					s.V4NicToIP[nicName] = ip
 					s.V4IPToPod[ip.String()] = fmt.Sprintf("%s,%s", s.V4IPToPod[ip.String()], podName)
-					return ip, macStr, nil
+					return conflict, ip, macStr, nil
 				}
 				klog.Errorf("ip %s has been allocated to %v", ip.String(), pods)
-				return ip, macStr, ErrConflict
+				return conflict, ip, macStr, ErrConflict
 			}
 			if !force {
-				return ip, macStr, nil
+				return conflict, ip, macStr, nil
 			}
 		}
 
 		if pool.V4Reserved.Contains(ip) {
 			s.V4NicToIP[nicName] = ip
 			s.V4IPToPod[ip.String()] = podName
-			return ip, macStr, nil
+			return conflict, ip, macStr, nil
 		}
 
 		if pool.V4Free.Remove(ip) {
@@ -404,12 +412,12 @@ func (s *Subnet) GetStaticAddress(podName, nicName string, ip IP, mac *string, f
 			s.V4NicToIP[nicName] = ip
 			s.V4IPToPod[ip.String()] = podName
 			isAllocated = true
-			return ip, macStr, nil
+			return conflict, ip, macStr, nil
 		} else if pool.V4Released.Remove(ip) {
 			s.V4NicToIP[nicName] = ip
 			s.V4IPToPod[ip.String()] = podName
 			isAllocated = true
-			return ip, macStr, nil
+			return conflict, ip, macStr, nil
 		}
 	} else if v6 {
 		if existPod, ok := s.V6IPToPod[ip.String()]; ok {
@@ -418,20 +426,20 @@ func (s *Subnet) GetStaticAddress(podName, nicName string, ip IP, mac *string, f
 				if !checkConflict {
 					s.V6NicToIP[nicName] = ip
 					s.V6IPToPod[ip.String()] = fmt.Sprintf("%s,%s", s.V6IPToPod[ip.String()], podName)
-					return ip, macStr, nil
+					return conflict, ip, macStr, nil
 				}
 				klog.Errorf("ip %s has been allocated to %v", ip.String(), pods)
-				return ip, macStr, ErrConflict
+				return conflict, ip, macStr, ErrConflict
 			}
 			if !force {
-				return ip, macStr, nil
+				return conflict, ip, macStr, nil
 			}
 		}
 
 		if pool.V6Reserved.Contains(ip) {
 			s.V6NicToIP[nicName] = ip
 			s.V6IPToPod[ip.String()] = podName
-			return ip, macStr, nil
+			return conflict, ip, macStr, nil
 		}
 
 		if pool.V6Free.Remove(ip) {
@@ -439,15 +447,15 @@ func (s *Subnet) GetStaticAddress(podName, nicName string, ip IP, mac *string, f
 			s.V6NicToIP[nicName] = ip
 			s.V6IPToPod[ip.String()] = podName
 			isAllocated = true
-			return ip, macStr, nil
+			return conflict, ip, macStr, nil
 		} else if pool.V6Released.Remove(ip) {
 			s.V6NicToIP[nicName] = ip
 			s.V6IPToPod[ip.String()] = podName
 			isAllocated = true
-			return ip, macStr, nil
+			return conflict, ip, macStr, nil
 		}
 	}
-	return ip, macStr, ErrNoAvailable
+	return conflict, ip, macStr, ErrNoAvailable
 }
 
 func (s *Subnet) releaseAddr(podName, nicName string) {

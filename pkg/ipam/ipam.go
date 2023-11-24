@@ -64,14 +64,17 @@ func (ipam *IPAM) GetRandomAddress(podName, nicName string, mac *string, subnetN
 	return v4, v6, macStr, err
 }
 
-func (ipam *IPAM) GetStaticAddress(podName, nicName, ip string, mac *string, subnetName string, checkConflict bool) (string, string, string, error) {
+func (ipam *IPAM) GetStaticAddress(podName, nicName, ip string, mac *string, subnetName string, checkConflict bool) (bool, string, string, string, error) {
+	// return conflict bool
+	// conflict could be treate as vm migrating
+
 	ipam.mutex.RLock()
 	defer ipam.mutex.RUnlock()
 	var subnet *Subnet
-	var ok bool
+	var ok, conflict bool
 	klog.Infof("allocating static ip %s from subnet %s", ip, subnetName)
 	if subnet, ok = ipam.Subnets[subnetName]; !ok {
-		return "", "", "", ErrNoAvailable
+		return false, "", "", "", ErrNoAvailable
 	}
 
 	var ips []IP
@@ -82,28 +85,28 @@ func (ipam *IPAM) GetStaticAddress(podName, nicName, ip string, mac *string, sub
 		ip, err := NewIP(ipStr)
 		if err != nil {
 			klog.Errorf("failed to parse ip %s", ipStr)
-			return "", "", "", err
+			return false, "", "", "", err
 		}
-		ipAddr, macStr, err = subnet.GetStaticAddress(podName, nicName, ip, mac, false, checkConflict)
+		conflict, ipAddr, macStr, err = subnet.GetStaticAddress(podName, nicName, ip, mac, false, checkConflict)
 		if err != nil {
 			klog.Errorf("failed to allocate static ip %s for %s", ipStr, podName)
-			return "", "", "", err
+			return conflict, "", "", "", err
 		}
 		ips = append(ips, ipAddr)
 	}
 	ips, err = checkAndAppendIpsForDual(ips, macStr, podName, nicName, subnet, checkConflict)
 	if err != nil {
 		klog.Errorf("failed to append allocate ip %v mac %s for %s", ips, mac, podName)
-		return "", "", "", err
+		return conflict, "", "", "", err
 	}
 
 	switch subnet.Protocol {
 	case kubeovnv1.ProtocolIPv4:
 		klog.Infof("allocate v4 %s, mac %s for %s from subnet %s", ip, macStr, podName, subnetName)
-		return ip, "", macStr, err
+		return conflict, ip, "", macStr, err
 	case kubeovnv1.ProtocolIPv6:
 		klog.Infof("allocate v6 %s, mac %s for %s from subnet %s", ip, macStr, podName, subnetName)
-		return "", ip, macStr, err
+		return conflict, "", ip, macStr, err
 	case kubeovnv1.ProtocolDual:
 		if ips[0] != nil {
 			v4 = ips[0].String()
@@ -112,9 +115,9 @@ func (ipam *IPAM) GetStaticAddress(podName, nicName, ip string, mac *string, sub
 			v6 = ips[1].String()
 		}
 		klog.Infof("allocate v4 %s, v6 %s, mac %s for %s from subnet %s", ips[0].String(), ips[1].String(), macStr, podName, subnetName)
-		return v4, v6, macStr, err
+		return conflict, v4, v6, macStr, err
 	}
-	return "", "", "", ErrNoAvailable
+	return conflict, "", "", "", ErrNoAvailable
 }
 
 func checkAndAppendIpsForDual(ips []IP, mac, podName, nicName string, subnet *Subnet, checkConflict bool) ([]IP, error) {

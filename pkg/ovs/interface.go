@@ -61,14 +61,17 @@ type LogicalSwitchPort interface {
 	CreateBareLogicalSwitchPort(lsName, lspName, ip, mac string) error
 	CreateLocalnetLogicalSwitchPort(lsName, lspName, provider string, vlanID int) error
 	CreateVirtualLogicalSwitchPorts(lsName string, ips ...string) error
+	GetLogicalSwitchPortMigrateOptions(lspName string) (string, string, error)
 	// create virtual type logical switch port for allowed-address-pair
 	CreateVirtualLogicalSwitchPort(lspName, lsName, ip string) error
+	CleanLogicalSwitchPortMigrateOptions(lspName string) error
 	// update virtual type logical switch port virtual-parents for allowed-address-pair
 	SetVirtualLogicalSwitchPortVirtualParents(lsName, parents string) error
 	SetLogicalSwitchPortSecurity(portSecurity bool, lspName, mac, ips, vips string) error
 	SetLogicalSwitchPortVirtualParents(lsName, parents string, ips ...string) error
 	SetLogicalSwitchPortArpProxy(lspName string, enableArpProxy bool) error
 	SetLogicalSwitchPortExternalIds(lspName string, externalIds map[string]string) error
+	SetLogicalSwitchPortMigrateOptions(lspName, srcChassisName, dstChassisName string) error
 	SetLogicalSwitchPortVlanTag(lspName string, vlanID int) error
 	SetLogicalSwitchPortsSecurityGroup(sgName, op string) error
 	EnablePortLayer2forward(lspName string) error

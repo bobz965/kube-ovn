@@ -236,7 +236,7 @@ func (c *Controller) handleAddNode(key string) error {
 	portName := fmt.Sprintf("node-%s", key)
 	if node.Annotations[util.AllocatedAnnotation] == "true" && node.Annotations[util.IPAddressAnnotation] != "" && node.Annotations[util.MacAddressAnnotation] != "" {
 		macStr := node.Annotations[util.MacAddressAnnotation]
-		v4IP, v6IP, mac, err = c.ipam.GetStaticAddress(portName, portName, node.Annotations[util.IPAddressAnnotation],
+		_, v4IP, v6IP, mac, err = c.ipam.GetStaticAddress(portName, portName, node.Annotations[util.IPAddressAnnotation],
 			&macStr, node.Annotations[util.LogicalSwitchAnnotation], true)
 		if err != nil {
 			klog.Errorf("failed to alloc static ip addrs for node %v: %v", node.Name, err)

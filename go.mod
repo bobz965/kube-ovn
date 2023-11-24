@@ -51,7 +51,7 @@ require (
 	k8s.io/pod-security-admission v0.27.4
 	k8s.io/sample-controller v0.27.4
 	k8s.io/utils v0.0.0-20230505201702-9f6742963106
-	kubevirt.io/client-go v0.58.1
+	kubevirt.io/client-go v0.59.0
 	sigs.k8s.io/controller-runtime v0.15.1
 )
 
@@ -268,7 +268,7 @@ require (
 	k8s.io/kubelet v0.27.4 // indirect
 	k8s.io/legacy-cloud-providers v0.0.0 // indirect
 	k8s.io/mount-utils v0.0.0 // indirect
-	kubevirt.io/api v0.58.1 // indirect
+	kubevirt.io/api v0.59.0 // indirect
 	kubevirt.io/containerized-data-importer-api v1.55.2 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
 	moul.io/http2curl v1.0.0 // indirect
