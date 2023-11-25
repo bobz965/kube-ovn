@@ -512,11 +512,27 @@ func (c *OVNNbClient) CleanLogicalSwitchPortMigrateOptions(lspName string) error
 	if lsp.Options == nil {
 		return nil
 	}
-	lsp.Options = make(map[string]string)
 
-	klog.Infof("nb clean logical switch port %s options", lspName)
+	requestedChassis, ok := lsp.Options["requested-chassis"]
+	var srcChassisName, dstChassisName string
+	if ok {
+		splits := strings.Split(requestedChassis, ",")
+		if len(splits) == 2 {
+			srcChassisName = splits[0]
+			dstChassisName = splits[1]
+		}
+	} else {
+		return nil
+	}
+
+	if srcChassisName == "" || dstChassisName == "" {
+		return nil
+	}
+
+	lsp.Options["requested-chassis"] = dstChassisName
+	klog.Infof("update logical switch port %s options to only one dst chassis=%s", lspName, dstChassisName)
 	if err := c.UpdateLogicalSwitchPort(lsp, &lsp.Options); err != nil {
-		return fmt.Errorf("failed to clean nb logical switch port %s options: %v", lspName, err)
+		return fmt.Errorf("failed to update nb logical switch port %s options: %v", lspName, err)
 	}
 	return nil
 }
