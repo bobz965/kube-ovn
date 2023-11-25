@@ -115,8 +115,9 @@ type Controller struct {
 	deleteIPPoolQueue       workqueue.RateLimitingInterface
 	ippoolKeyMutex          keymutex.KeyMutex
 
-	ipsLister kubeovnlister.IPLister
-	ipSynced  cache.InformerSynced
+	ipsLister     kubeovnlister.IPLister
+	ipSynced      cache.InformerSynced
+	updateIPQueue workqueue.RateLimitingInterface
 
 	virtualIpsLister          kubeovnlister.VipLister
 	virtualIpsSynced          cache.InformerSynced
@@ -350,8 +351,9 @@ func Run(ctx context.Context, config *Configuration) {
 		deleteIPPoolQueue:       workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "DeleteIPPool"),
 		ippoolKeyMutex:          keymutex.NewHashed(numKeyLocks),
 
-		ipsLister: ipInformer.Lister(),
-		ipSynced:  ipInformer.Informer().HasSynced,
+		ipsLister:     ipInformer.Lister(),
+		ipSynced:      ipInformer.Informer().HasSynced,
+		updateIPQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "UpdateIP"),
 
 		virtualIpsLister:          virtualIPInformer.Lister(),
 		virtualIpsSynced:          virtualIPInformer.Informer().HasSynced,
@@ -638,6 +640,12 @@ func Run(ctx context.Context, config *Configuration) {
 		util.LogFatalAndExit(err, "failed to add security group event handler")
 	}
 
+	if _, err = ipInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: controller.enqueueUpdateIP,
+	}); err != nil {
+		util.LogFatalAndExit(err, "failed to add ip event handler")
+	}
+
 	if _, err = virtualIPInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    controller.enqueueAddVirtualIP,
 		UpdateFunc: controller.enqueueUpdateVirtualIP,
@@ -873,6 +881,8 @@ func (c *Controller) shutdown() {
 		c.delVpcDNSQueue.ShutDown()
 	}
 
+	c.updateIPQueue.ShutDown()
+
 	c.addVirtualIPQueue.ShutDown()
 	c.updateVirtualIPQueue.ShutDown()
 	c.updateVirtualParentsQueue.ShutDown()
@@ -1091,6 +1101,8 @@ func (c *Controller) startWorkers(ctx context.Context) {
 	if c.config.EnableNP {
 		go wait.Until(c.CheckNodePortGroup, time.Duration(c.config.NodePgProbeTime)*time.Minute, ctx.Done())
 	}
+
+	go wait.Until(c.runUpdateIPWorker, time.Second, ctx.Done())
 
 	go wait.Until(c.runAddVirtualIPWorker, time.Second, ctx.Done())
 	go wait.Until(c.runUpdateVirtualIPWorker, time.Second, ctx.Done())

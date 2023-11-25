@@ -370,6 +370,46 @@ func (csh cniServerHandler) UpdateIPCr(podRequest request.CniRequest, subnet, ip
 	return nil
 }
 
+func (csh cniServerHandler) UpdateVMIPAnnotations(podRequest request.CniRequest, podName string) error {
+	// in this case, the pod is a vm pod, ip name contains vm name
+	// we need to update the vm pod's ip annotations to trigger the vm pod's ip update its lsp migration options
+	podKey := fmt.Sprintf("%s/%s", podRequest.PodNamespace, podName)
+	vmName := podRequest.PodName
+	ipCrName := ovs.PodNameToPortName(vmName, podRequest.PodNamespace, podRequest.Provider)
+	oriIPCr, err := csh.KubeOvnClient.KubeovnV1().IPs().Get(context.Background(), ipCrName, metav1.GetOptions{})
+	if err != nil {
+		err = fmt.Errorf("failed to get ip crd %s for vm pod %s, %v", ipCrName, podKey, err)
+		klog.Error(err)
+	}
+	needUpdate := false
+	ipCr := oriIPCr.DeepCopy()
+	if ipCr.Annotations == nil {
+		ipCr.Annotations = map[string]string{}
+	}
+	delPod, ok := ipCr.Annotations[util.CNIDelVMPod]
+	if ok {
+		if delPod != podKey {
+			needUpdate = true
+		} else {
+			return nil
+		}
+	} else {
+		needUpdate = true
+	}
+	if needUpdate {
+		ipCr.Annotations[util.CNIDelVMPod] = podKey
+		klog.Infof("wait 5s until vm pod is migrated to new node")
+		time.Sleep(5 * time.Second)
+		if _, err := csh.KubeOvnClient.KubeovnV1().IPs().Update(context.Background(), ipCr, metav1.UpdateOptions{}); err != nil {
+			err = fmt.Errorf("failed to update ip crd %s for vm pod %s, %v", ipCrName, podKey, err)
+			klog.Error(err)
+		} else {
+			return nil
+		}
+	}
+	return nil
+}
+
 func (csh cniServerHandler) handleDel(req *restful.Request, resp *restful.Response) {
 	var podRequest request.CniRequest
 	if err := req.ReadEntity(&podRequest); err != nil {
@@ -436,7 +476,9 @@ func (csh cniServerHandler) handleDel(req *restful.Request, resp *restful.Respon
 			nicType = pod.Annotations[fmt.Sprintf(util.PodNicAnnotationTemplate, podRequest.Provider)]
 		}
 		vmName := pod.Annotations[fmt.Sprintf(util.VMTemplate, podRequest.Provider)]
+		var podName string
 		if vmName != "" {
+			podName = podRequest.PodName
 			podRequest.PodName = vmName
 		}
 
@@ -449,6 +491,16 @@ func (csh cniServerHandler) handleDel(req *restful.Request, resp *restful.Respon
 			}
 			return
 		}
+
+		if vmName != "" {
+			if err := csh.UpdateVMIPAnnotations(podRequest, podName); err != nil {
+				if err := resp.WriteHeaderAndEntity(http.StatusInternalServerError, request.CniResponse{Err: err.Error()}); err != nil {
+					klog.Errorf("failed to write response, %v", err)
+				}
+				return
+			}
+		}
+
 	}
 
 	resp.WriteHeader(http.StatusNoContent)

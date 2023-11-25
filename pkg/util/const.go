@@ -6,7 +6,6 @@ const (
 	ControllerName = "kube-ovn-controller"
 
 	AllocatedAnnotation  = "ovn.kubernetes.io/allocated"
-	VMMigratedAnnotation = "ovn.kubernetes.io/vm_migrated"
 	RoutedAnnotation     = "ovn.kubernetes.io/routed"
 	RoutesAnnotation     = "ovn.kubernetes.io/routes"
 	MacAddressAnnotation = "ovn.kubernetes.io/mac_address"
@@ -89,6 +88,9 @@ const (
 	MirrorControlAnnotationTemplate   = "%s.kubernetes.io/mirror"
 	PodNicAnnotationTemplate          = "%s.kubernetes.io/pod_nic_type"
 	VMTemplate                        = "%s.kubernetes.io/virtualmachine"
+
+	VMMigrateAnnotation = "ovn.kubernetes.io/vm_migrate"
+	CNIDelVMPod         = "ovn.kubernetes.io/cni_del_vm_pod"
 
 	KubevirtVMLabel  = "kubevirt.io/vm"
 	KubevirtVMILabel = "kubevirt.io/vmi-name"

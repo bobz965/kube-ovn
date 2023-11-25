@@ -658,7 +658,7 @@ func (c *Controller) reconcileAllocateSubnets(cachedPod, pod *v1.Pod, needAlloca
 	// Avoid create lsp for already running pod in ovn-nb when controller restart
 	for _, podNet := range needAllocatePodNets {
 		// the subnet may changed when alloc static ip from the latter subnet after ns supports multi subnets
-		conflict, v4IP, v6IP, mac, subnet, err := c.acquireAddress(pod, podNet)
+		_, v4IP, v6IP, mac, subnet, err := c.acquireAddress(pod, podNet)
 		if err != nil {
 			c.recorder.Eventf(pod, v1.EventTypeWarning, "AcquireAddressFailed", err.Error())
 			klog.Error(err)
@@ -700,12 +700,7 @@ func (c *Controller) reconcileAllocateSubnets(cachedPod, pod *v1.Pod, needAlloca
 						return nil, err
 					}
 				}
-				pod.Annotations[util.VMMigratedAnnotation] = "true"
-			}
-
-			// if vm is migrating, set lsp migration options for vm from src chassis to dst chassis
-			if conflict && vmInMigrate && pod.Spec.NodeName == dstChassisName {
-				klog.Infof("xxxxxxxxxxxxx vm %s is migrating from %s to %s", vmKey, srcChassisName, dstChassisName)
+				pod.Annotations[util.VMMigrateAnnotation] = "true"
 			}
 		}
 
@@ -1918,9 +1913,9 @@ func isVMPod(pod *v1.Pod) (bool, string) {
 }
 
 func (c *Controller) vmIsMigrating(pod *v1.Pod, vmiName string) (bool, string, string, error) {
-	// return migrating, migrated bool, src node, dst node, error
+	// return migrating, bool, src node, dst node, error
 	// 热迁移的时候肯定存在两个虚拟机，一个是源虚拟机，一个是目标虚拟机
-	if migrated, ok := pod.Annotations[util.VMMigratedAnnotation]; ok && migrated == "true" {
+	if migrating, ok := pod.Annotations[util.VMMigrateAnnotation]; ok && migrating == "true" {
 		return true, "", "", nil
 	}
 	vmKey := fmt.Sprintf("%s/%s", pod.Namespace, vmiName)

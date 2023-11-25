@@ -512,11 +512,11 @@ func (c *OVNNbClient) CleanLogicalSwitchPortMigrateOptions(lspName string) error
 	if lsp.Options == nil {
 		return nil
 	}
-
 	lsp.Options = make(map[string]string)
-	klog.Infof("clean logical switch port %s options", lspName)
+
+	klog.Infof("nb clean logical switch port %s options", lspName)
 	if err := c.UpdateLogicalSwitchPort(lsp, &lsp.Options); err != nil {
-		return fmt.Errorf("failed to clean logical switch port %s options: %v", lspName, err)
+		return fmt.Errorf("failed to clean nb logical switch port %s options: %v", lspName, err)
 	}
 	return nil
 }
