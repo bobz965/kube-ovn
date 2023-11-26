@@ -474,6 +474,16 @@ func (c *Controller) processNextSubnetWorkItem() bool {
 func (c *Controller) enqueuePod(oldObj, newObj interface{}) {
 	oldPod := oldObj.(*v1.Pod)
 	newPod := newObj.(*v1.Pod)
+	if newPod.Annotations[util.VMMigrateAnnotation] == "true" && oldPod.Status.Phase != newPod.Status.Phase {
+		var key string
+		var err error
+		if key, err = cache.MetaNamespaceKeyFunc(newObj); err != nil {
+			utilruntime.HandleError(err)
+			return
+		}
+		c.podQueue.Add(key)
+
+	}
 
 	if oldPod.Annotations[util.IngressRateAnnotation] != newPod.Annotations[util.IngressRateAnnotation] ||
 		oldPod.Annotations[util.EgressRateAnnotation] != newPod.Annotations[util.EgressRateAnnotation] ||
