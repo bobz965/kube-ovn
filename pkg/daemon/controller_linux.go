@@ -573,7 +573,7 @@ func (c *Controller) handlePod(key string) error {
 	}
 	// flush fdb when vm migrated
 	if pod.Annotations[util.VMMigrateAnnotation] == "true" && pod.Spec.NodeName == c.config.NodeName && pod.Status.Phase == v1.PodRunning {
-		klog.Infof("start flush fdb for pod %s", pod.Name)
+		klog.Infof("start flush fdb for miration dst new pod %s", pod.Name)
 		output, err := ovs.AppExec("fdb/flush")
 		if err != nil {
 			klog.Errorf("appctl flush fdb failed %v: %q", err, output)

@@ -403,8 +403,12 @@ func (csh cniServerHandler) UpdateVMIPAnnotations(podRequest request.CniRequest,
 		if _, err := csh.KubeOvnClient.KubeovnV1().IPs().Update(context.Background(), ipCr, metav1.UpdateOptions{}); err != nil {
 			err = fmt.Errorf("failed to update ip crd %s for vm pod %s, %v", ipCrName, podKey, err)
 			klog.Error(err)
-		} else {
-			return nil
+		}
+		klog.Infof("start flush fdb for miration old src pod %s", podName)
+		output, err := ovs.AppExec("fdb/flush")
+		if err != nil {
+			klog.Errorf("appctl flush fdb failed %v: %q", err, output)
+			return err
 		}
 	}
 	return nil
