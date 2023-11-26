@@ -32,6 +32,53 @@ func UpdateOVSVsctlLimiter(c int32) {
 
 var podNetNsRegexp = regexp.MustCompile(`pod_netns="([^"]+)"`)
 
+func AppExec(args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	var (
+		start        time.Time
+		elapsed      float64
+		output       []byte
+		method, code string
+		err          error
+	)
+
+	if err = limiter.Wait(ctx); err != nil {
+		klog.V(4).Infof("command %s %s waiting for execution timeout by concurrency limit of %d", OvsAppCtl, strings.Join(args, " "), limiter.Limit())
+		return "", err
+	}
+	defer limiter.Done()
+	klog.V(4).Infof("command %s %s waiting for execution concurrency %d/%d", OvsAppCtl, strings.Join(args, " "), limiter.Current(), limiter.Limit())
+
+	start = time.Now()
+	args = append([]string{"--timeout=30"}, args...)
+	output, err = exec.Command(OvsAppCtl, args...).CombinedOutput()
+	elapsed = float64((time.Since(start)) / time.Millisecond)
+	klog.V(4).Infof("command %s %s in %vms", OvsAppCtl, strings.Join(args, " "), elapsed)
+
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "--") {
+			method = arg
+			break
+		}
+	}
+
+	code = "0"
+	defer func() {
+		ovsClientRequestLatency.WithLabelValues("ovsdb", method, code).Observe(elapsed)
+	}()
+
+	if err != nil {
+		code = "1"
+		klog.Warningf("ovs-appctl command error: %s %s in %vms", OvsAppCtl, strings.Join(args, " "), elapsed)
+		return "", fmt.Errorf("failed to run '%s %s': %v\n  %q", OvsAppCtl, strings.Join(args, " "), err, output)
+	} else if elapsed > 500 {
+		klog.Warningf("ovs-appctl command took too long: %s %s in %vms", OvsAppCtl, strings.Join(args, " "), elapsed)
+	}
+	return trimCommandOutput(output), nil
+}
+
 func Exec(args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
