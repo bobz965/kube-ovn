@@ -1021,7 +1021,7 @@ func (c *Controller) handleDeletePod(key string) error {
 		}
 	}
 
-	ports, err := c.OVNNbClient.ListNormalLogicalSwitchPorts(true, map[string]string{"pod": key})
+	ports, err := c.OVNNbClient.ListNormalLogicalSwitchPorts(true, map[string]string{"pod": podName})
 	if err != nil {
 		klog.Errorf("failed to list lsps of pod '%s', %v", pod.Name, err)
 		return err
