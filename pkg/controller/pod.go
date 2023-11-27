@@ -651,8 +651,8 @@ func (c *Controller) reconcileAllocateSubnets(cachedPod, pod *v1.Pod, needAlloca
 			return nil, err
 		}
 	}
-
-	klog.Infof("sync pod %s/%s allocated", namespace, name)
+	podKey := fmt.Sprintf("%s/%s", namespace, name)
+	klog.Infof("sync pod %s allocated", podKey)
 	vipsMap := c.getVirtualIPs(pod, needAllocatePodNets)
 
 	// Avoid create lsp for already running pod in ovn-nb when controller restart
@@ -756,6 +756,7 @@ func (c *Controller) reconcileAllocateSubnets(cachedPod, pod *v1.Pod, needAlloca
 			}
 
 			if !vmInMigrate {
+				klog.Infof("create logical switch port %s for pod %s", portName, podKey)
 				if err := c.OVNNbClient.CreateLogicalSwitchPort(subnet.Name, portName, ipStr, mac, podName, pod.Namespace, portSecurity, securityGroupAnnotation, vips, podNet.Subnet.Spec.EnableDHCP, dhcpOptions, subnet.Spec.Vpc); err != nil {
 					c.recorder.Eventf(pod, v1.EventTypeWarning, "CreateOVNPortFailed", err.Error())
 					klog.Errorf("%v", err)
