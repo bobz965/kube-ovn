@@ -3005,6 +3005,8 @@ rules:
     resources:
       - virtualmachines
       - virtualmachineinstances
+      - virtualmachineinstancemigrations
+      - virtualmachineinstancemigrations/status
     verbs:
       - get
       - list
