@@ -20,13 +20,13 @@ func (c *Controller) enqueueAddOrDelIP(obj interface{}) {
 	}
 
 	ipObj := obj.(*kubeovnv1.IP)
-	klog.V(3).Infof("enqueue update status subnet %s", ipObj.Spec.Subnet)
+	klog.Infof("enqueue update status subnet %s", ipObj.Spec.Subnet)
 	if strings.HasPrefix(ipObj.Name, util.U2OInterconnName[0:19]) {
 		return
 	}
 	c.updateSubnetStatusQueue.Add(ipObj.Spec.Subnet)
 	for _, as := range ipObj.Spec.AttachSubnets {
-		klog.V(3).Infof("enqueue update status subnet %s", as)
+		klog.Infof("enqueue update status attach subnet %s", as)
 		c.updateSubnetStatusQueue.Add(as)
 	}
 }
@@ -46,9 +46,9 @@ func (c *Controller) enqueueUpdateIP(oldObj, newObj interface{}) {
 			c.updateIPQueue.Add(key)
 		}
 	}
-	klog.V(3).Infof("enqueue update status subnet %s", newIP.Spec.Subnet)
+	klog.Infof("enqueue update status subnet %s", newIP.Spec.Subnet)
 	for _, as := range newIP.Spec.AttachSubnets {
-		klog.V(3).Infof("enqueue update status subnet %s", as)
+		klog.Infof("enqueue update status attach subnet %s", as)
 		c.updateSubnetStatusQueue.Add(as)
 	}
 }
