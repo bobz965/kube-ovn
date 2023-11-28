@@ -1034,7 +1034,6 @@ func (c *Controller) handleDeletePod(key string) error {
 			if strings.TrimSpace(address.IP) == "" {
 				continue
 			}
-			klog.Infof("pod key s% get addrees is s%", key, address.IP)
 			subnet, err := c.subnetsLister.Get(address.Subnet.Name)
 			if k8serrors.IsNotFound(err) {
 				continue
