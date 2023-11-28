@@ -1029,7 +1029,7 @@ func (c *Controller) handleDeletePod(key string) error {
 	}
 
 	if len(ports) != 0 {
-		addresses := c.ipam.GetPodAddress(podkey)
+		addresses := c.ipam.GetPodAddress(podKey)
 		for _, address := range addresses {
 			if strings.TrimSpace(address.IP) == "" {
 				continue
