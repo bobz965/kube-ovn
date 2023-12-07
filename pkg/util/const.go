@@ -92,6 +92,8 @@ const (
 	VMMigrateAnnotation = "ovn.kubernetes.io/vm_migrate"
 	CNIDelVMPod         = "ovn.kubernetes.io/cni_del_vm_pod"
 
+	VMMigrateSrcPodAnnotation = "ovn.kubernetes.io/vm_migrate_src_pod"
+
 	KubevirtVMLabel  = "kubevirt.io/vm"
 	KubevirtVMILabel = "kubevirt.io/vmi-name"
 

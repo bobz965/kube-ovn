@@ -700,7 +700,6 @@ func (c *Controller) reconcileAllocateSubnets(cachedPod, pod *v1.Pod, needAlloca
 						return nil, err
 					}
 				}
-				pod.Annotations[util.VMMigrateAnnotation] = "true"
 			}
 		}
 
@@ -1998,6 +1997,9 @@ func (c *Controller) vmIsMigrating(pod *v1.Pod, vmiName string) (bool, string, s
 	}
 
 	klog.Infof("src vmi %s is migrating from %s to %s", vmiName, srcPod.Spec.NodeName, dstPod.Spec.NodeName)
+	pod.Annotations[util.VMMigrateAnnotation] = "true"
+	srcPodKey := fmt.Sprintf("%s/%s", srcPod.Namespace, srcPod.Name)
+	pod.Annotations[util.VMMigrateSrcPodAnnotation] = srcPodKey
 	return true, srcPod.Spec.NodeName, dstPod.Spec.NodeName, nil
 }
 

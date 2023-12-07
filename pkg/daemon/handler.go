@@ -398,8 +398,7 @@ func (csh cniServerHandler) UpdateVMIPAnnotations(podRequest request.CniRequest,
 	}
 	if needUpdate {
 		ipCr.Annotations[util.CNIDelVMPod] = podKey
-		klog.Infof("wait 2s until vm pod is migrated to new node")
-		time.Sleep(2 * time.Second)
+		klog.Infof("old vm pod %s is migrated", podKey)
 		if _, err := csh.KubeOvnClient.KubeovnV1().IPs().Update(context.Background(), ipCr, metav1.UpdateOptions{}); err != nil {
 			err = fmt.Errorf("failed to update ip crd %s for vm pod %s, %v", ipCrName, podKey, err)
 			klog.Error(err)

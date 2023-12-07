@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,12 +13,14 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/alauda/felix/ipsets"
 	"github.com/kubeovn/go-iptables/iptables"
 	"github.com/vishvananda/netlink"
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/tools/cache"
@@ -573,13 +576,33 @@ func (c *Controller) handlePod(key string) error {
 	}
 	// flush fdb when vm migrated
 	if pod.Annotations[util.VMMigrateAnnotation] == "true" && pod.Spec.NodeName == c.config.NodeName && pod.Status.Phase == v1.PodRunning {
-		klog.Infof("start flush fdb for miration dst new pod %s", pod.Name)
-		output, err := ovs.AppExec("fdb/flush")
-		if err != nil {
-			klog.Errorf("appctl flush fdb failed %v: %q", err, output)
-			return err
+		srcVMPodKey := pod.Annotations[util.VMMigrateSrcPodAnnotation]
+		if srcVMPodKey == "" {
+			err = fmt.Errorf("failed to get migration src vm pod key for vm pod %s", pod.Name)
+			klog.Error(err)
+			return nil
 		}
-
+		vmName := pod.Annotations[fmt.Sprintf(util.VMTemplate, util.OvnProvider)]
+		ipCrName := ovs.PodNameToPortName(vmName, pod.Namespace, util.OvnProvider)
+		var ipCr *kubeovnv1.IP
+		for retry := 0; retry < 30; retry++ {
+			if ipCr, err = c.config.KubeOvnClient.KubeovnV1().IPs().Get(context.Background(), ipCrName, metav1.GetOptions{}); err != nil {
+				err = fmt.Errorf("failed to get ip crd %s for vm pod %s, %v", ipCrName, key, err)
+				klog.Error(err)
+				return err
+			}
+			if ipCr.Annotations[util.CNIDelVMPod] == srcVMPodKey {
+				klog.Infof("start flush fdb for miration dst new pod %s, already deleted src pod %s", pod.Name, srcVMPodKey)
+				output, err := ovs.AppExec("fdb/flush")
+				if err != nil {
+					klog.Errorf("appctl flush fdb failed %v: %q", err, output)
+					return err
+				}
+				break
+			}
+			klog.Infof("waiting 1s for miration dst pod %s, delete src pod %s", pod.Name, srcVMPodKey)
+			time.Sleep(1 * time.Second)
+		}
 	}
 	return nil
 }
