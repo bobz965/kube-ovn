@@ -456,18 +456,15 @@ func checkAndUpdateGateway(subnet *kubeovnv1.Subnet) (bool, error) {
 
 // this func must be called after subnet.Spec.Gateway is valued
 func checkAndUpdateExcludeIPs(subnet *kubeovnv1.Subnet) bool {
-	var (
-		changed    bool
-		excludeIPs []string
-	)
-	excludeIPs = append(excludeIPs, strings.Split(subnet.Spec.Gateway, ",")...)
-	sort.Strings(excludeIPs)
+	var changed bool
+	gws := strings.Split(subnet.Spec.Gateway, ",")
+	sort.Strings(gws)
 	if len(subnet.Spec.ExcludeIps) == 0 {
-		subnet.Spec.ExcludeIps = excludeIPs
+		subnet.Spec.ExcludeIps = gws
 		changed = true
 	} else {
 		changed = checkAndFormatsExcludeIPs(subnet)
-		for _, gw := range excludeIPs {
+		for _, gw := range gws {
 			gwExists := false
 			for _, excludeIP := range subnet.Spec.ExcludeIps {
 				if util.ContainsIPs(excludeIP, gw) {
@@ -477,10 +474,12 @@ func checkAndUpdateExcludeIPs(subnet *kubeovnv1.Subnet) bool {
 			}
 			if !gwExists {
 				subnet.Spec.ExcludeIps = append(subnet.Spec.ExcludeIps, gw)
-				sort.Strings(subnet.Spec.ExcludeIps)
 				changed = true
 			}
 		}
+	}
+	if changed {
+		sort.Strings(subnet.Spec.ExcludeIps)
 	}
 	return changed
 }
