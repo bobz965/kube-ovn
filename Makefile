@@ -1061,17 +1061,17 @@ ut:
 ovs-sandbox: clean-ovs-sandbox
 	docker run -itd --name ut-ovs-sandbox \
 		--privileged \
-		-v /tmp:/tmp \
+		-v /var/run/openvswitch:/tmp/sandbox \
 		$(REGISTRY)/kube-ovn-base:$(RELEASE_TAG) ovs-sandbox -i
 
 .PHONY: clean-ovs-sandbox
 clean-ovs-sandbox:
-	file /tmp/sandbox && docker rm -f ut-ovs-sandbox && rm -fr /tmp/sandbox
+	file /var/run/openvswitch && docker rm -f ut-ovs-sandbox && rm -fr /var/run/openvswitch
 
 .PHONY: cp-ovs-ctl
 cp-ovs-ctl:
 	docker cp ut-ovs-sandbox:/usr/bin/ovs-vsctl /usr/bin/ovs-vsctl
-	/usr/bin/ovs-vsctl --db=unix:/tmp/sandbox/db.sock show
+	/usr/bin/ovs-vsctl show
 
 .PHONY: cover
 cover:
