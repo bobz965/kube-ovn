@@ -33,7 +33,7 @@ type OvnClientTestSuite struct {
 	failedOvnNBClient *OVNNbClient
 	ovnLegacyClient   *LegacyClient
 
-	ovsSocket string
+	enableOvsSandbox bool
 }
 
 func emptyNbDatabaseModel() (model.ClientDBModel, error) {
@@ -88,7 +88,12 @@ func (suite *OvnClientTestSuite) SetupSuite() {
 	suite.ovnLegacyClient = newLegacyClient(10)
 
 	// ovs-ctl ut use ovs-sandbox
-	suite.ovsSocket = "--db=unix:/tmp/sandbox/db.sock"
+	if _, err := os.Stat("/var/run/openvswitch/db.sock"); err == nil {
+		ret, err := Exec(MayExist, "add-br", "br-int")
+		require.NoError(suite.T(), err)
+		require.NotEmpty(suite.T(), ret)
+		suite.enableOvsSandbox = true
+	}
 }
 
 // In order for 'go test' to run this suite, we need to create
